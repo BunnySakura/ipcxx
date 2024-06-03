@@ -1,0 +1,8 @@
+# IDE配置
+/.idea/
+/.vscode/
+
+# 编译产物
+/cmake-*/
+/build/
+/output/
