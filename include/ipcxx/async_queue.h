@@ -142,8 +142,7 @@ class AsyncQueue final {
       return true;
     }
 
-    template<typename Rep, typename Period>
-    bool pop(value_type &element, std::chrono::duration<Rep, Period> timeout) {
+    bool pop(value_type &element, std::chrono::milliseconds timeout) {
       std::unique_lock lock(mQueueMutex);
       if (!mQueueCond.wait_for(lock, timeout, [this]() { return !mQueue.empty(); })) {
         return false;
