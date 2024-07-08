@@ -37,7 +37,7 @@ class AsyncQueue final {
      */
     AsyncQueue(AsyncQueue &&other) noexcept {
       mQueue = std::move(other.mQueue);
-      mQueueMaxSize = other.mQueueMaxSize;
+      mQueueMaxSize.exchange(other.mQueueMaxSize);
     }
 
     ~AsyncQueue() = default;
@@ -65,7 +65,7 @@ class AsyncQueue final {
       std::lock_guard lock(mQueueMutex);
       if (this != &other) {
         mQueue = std::move(other.mQueue);
-        mQueueMaxSize = other.mQueueMaxSize;
+        mQueueMaxSize.exchange(other.mQueueMaxSize);
       }
       if (!mQueue.empty()) mQueueCond.notify_all();
       return *this;
