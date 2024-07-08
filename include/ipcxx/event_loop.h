@@ -31,16 +31,8 @@ class Event final {
     void setPriority(const Priority &priority) { mPriority = priority; }
 
     template<typename Func, typename... Args>
-    [[nodiscard]] auto bind(Func &&callable, Args &&... args) {
-      using return_type = std::invoke_result_t<Func, Args...>;
-      using packaged_task_type = std::packaged_task<return_type()>;
-
-      auto task_ptr = std::make_shared<packaged_task_type>(
-        std::bind(std::forward<Func>(callable), std::forward<Args>(args)...)
-      );
-
-      mHandlers.push_back(std::bind(&packaged_task_type::operator(), task_ptr));
-      return task_ptr->get_future();
+    auto bind(Func &&callable, Args &&... args) {
+      mHandlers.push_back(std::bind(std::forward<Func>(callable), std::forward<Args>(args)...));
     }
 
     void trigger() {
@@ -75,6 +67,18 @@ class EventLoop {
       kLoop
     };
 
+    EventLoop();
+
+    ~EventLoop();
+
+    EventLoop(const EventLoop &other) = delete;
+
+    EventLoop(EventLoop &&other) = delete;
+
+    EventLoop &operator=(const EventLoop &other) = delete;
+
+    EventLoop &operator=(EventLoop &&other) = delete;
+
     void start(const ExecMode &mode = ExecMode::kThisThread);
 
     void stop();
@@ -94,7 +98,8 @@ class EventLoop {
   private:
     std::thread mThread;
 
-    std::atomic<Status> mStatus{Status::kStopped};
+    std::mutex mStatusMutex;
+    std::atomic<Status> mStatus;
 
     std::shared_mutex mEventsMutex;
     std::unordered_map<std::string, Event> mEvents;
