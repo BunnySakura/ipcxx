@@ -1,61 +1,54 @@
 #include <chrono>
 #include <iostream>
-#include <string>
 #include <thread>
 
 #include "ipcxx/event_loop.h"
 
-namespace ipcxx {
-// 示例事件处理函数
-void exampleEventHandler() {
-  std::cout << "Event handler is processing the event." << std::endl;
-}
-
-// 触发事件的线程函数
-void triggerEvent(const std::string &event_name, EventLoop &eventLoop) {
-  // 直接触发事件
-  eventLoop.trigger(event_name);
-}
-} // namespace ipcxx
+using namespace ipcxx;
+using namespace std::chrono_literals;
 
 int main() {
-  using namespace ipcxx;
-  EventLoop eventLoop;
+  // 在新线程启动事件循环
+  EventLoop event_loop(EventLoop::ExecMode::kNewThread);
 
-  // 创建事件并设置处理程序
+  // 创建事件对象并绑定处理函数
+  std::atomic_int global_count = 0; // 测试携带参数的回调
   Event event;
-  event.bind(exampleEventHandler);
+  event.bind([] { std::cout << "=== Event triggered. ===" << std::endl; });
+  event.bind(
+    [](const std::atomic_int &global_count) {
+      static int internal_count = 0; // 回调执行一次，计数+1
+      std::cout << "==> " << global_count << ", " << internal_count++ << std::endl;
+    },
+    std::cref(global_count)
+  );
   event.setPriority(Event::Priority::kHigh); // 设置高优先级
 
   // 添加事件到事件循环
-  eventLoop.add("TestEvent", event);
-
-  // 启动事件循环在新线程
-  std::thread eventLoopThread(
-    [&eventLoop] {
-      eventLoop.start(EventLoop::ExecMode::kThisThread);
-    }
-  );
-
-  // 等待片刻以确保事件循环开始运行
-  std::this_thread::sleep_for(std::chrono::seconds(1));
+  std::string event_name = "TestEvent";
+  event_loop.add(event_name, event);
 
   // 在两个新线程中触发事件
-  std::thread triggerThread1(triggerEvent, "TestEvent", std::ref(eventLoop));
-  std::thread triggerThread2(triggerEvent, "TestEvent", std::ref(eventLoop));
+  auto trigger_event = [&global_count](const std::string &event_name, EventLoop &event_loop) {
+    for (int i = 0; i < 100; ++i) {
+      global_count = i;
+      event_loop.trigger(event_name);
+      std::this_thread::sleep_for(100ms);
+    }
+  };
+  std::thread thread1(trigger_event, event_name, std::ref(event_loop));
+  std::thread thread2(trigger_event, event_name, std::ref(event_loop));
+
+  std::this_thread::sleep_for(1s);
+  event_loop.pause();
+  std::this_thread::sleep_for(1s);
+  event_loop.resume();
 
   // 等待触发事件的线程结束
-  triggerThread1.join();
-  triggerThread2.join();
+  thread1.join();
+  thread2.join();
 
   // 停止事件循环
-  eventLoop.stop();
-
-  // 等待事件循环线程结束
-  if (eventLoopThread.joinable()) {
-    eventLoopThread.join();
-  }
-
   std::cout << "Event loop finished processing events." << std::endl;
 
   return 0;
