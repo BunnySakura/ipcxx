@@ -5,11 +5,9 @@
 
 #include <atomic>
 #include <functional>
-#include <future>
 #include <optional>
-#include <queue>
-#include <shared_mutex>
 #include <thread>
+#include <unordered_set>
 
 namespace ipcxx {
 class Event final {
@@ -79,8 +77,8 @@ class Event final {
     }
 
   protected:
-    Priority mPriority{Priority::kNormal};
-    std::vector<EventHandler> mHandlers; // 事件处理函数
+    Priority mPriority{Priority::kNormal}; // 事件优先级
+    std::vector<EventHandler> mHandlers;   // 事件处理函数
 };
 
 class EventLoop {
@@ -102,6 +100,10 @@ class EventLoop {
       kStopped,
     };
 
+    /**
+     * \brief 创建事件循环
+     * \param mode 事件循环执行位置
+     */
     explicit EventLoop(const ExecMode &mode = ExecMode::kNewThread)
       : mLoopStatus(Status::kRunning) {
       auto loop = [this] {
@@ -129,7 +131,7 @@ class EventLoop {
           } while (false);
 
           while (!triggered_evts.empty()) {
-            auto evt = triggered_evts.top();
+            Event evt = triggered_evts.top();
             triggered_evts.pop();
             evt.trigger(); // 执行事件绑定的处理函数
           }
@@ -220,10 +222,10 @@ class EventLoop {
     std::thread mLoopThread;         // 在新线程中执行循环
     std::atomic<Status> mLoopStatus; // 事件循环状态
 
-    std::unordered_map<std::string, Event> mEvents;
+    std::unordered_map<std::string, Event> mEvents; // 事件名称 - 事件对象
     std::mutex mEventsMutex;
 
-    AsyncQueue<std::string> mTriggeredEvtNames;
+    AsyncQueue<std::string> mTriggeredEvtNames; // 触发的事件名称
 };
 
 class TimerManager {
@@ -233,16 +235,87 @@ class TimerManager {
       kLoop
     };
 
-    TimerManager() = default;
+    TimerManager()
+      : mThreadExit(false),
+        mThread(&TimerManager::TimerThread, this) {}
 
-    ~TimerManager() = default;
+    ~TimerManager() {
+      mThreadExit = true;
+      mThreadCv.notify_all();
+      mThread.join();
+    }
+
+    TimerManager(const TimerManager &) = delete;
+
+    TimerManager &operator=(const TimerManager &) = delete;
+
+    TimerManager(TimerManager &&other) = delete;
+
+    TimerManager &operator=(TimerManager &&other) = delete;
 
     void addTimer(
+      EventLoop *loop,
       const std::string &event_name,
       const Event &event,
       const std::chrono::milliseconds &timeout,
-      TimerMode once = TimerMode::kOnce
-    );
+      TimerMode mode = TimerMode::kOnce
+    ) {
+      std::lock_guard lock(mThreadMutex);
+      mTimers.push({loop, event_name, timeout, timeout, mode});
+      loop->add(event_name, event);
+      mThreadCv.notify_one();
+    }
+
+    void removeTimer(const std::string &event_name) {
+      std::lock_guard lock(mDeletedTimersMutex);
+      mDeletedTimers.insert(event_name);
+    }
+
+    void clearTimers() {
+      std::lock_guard lock(mThreadMutex);
+      std::priority_queue<Timer> timers;
+      mTimers.swap(timers);
+    }
+
+  private:
+    std::atomic_bool mThreadExit;
+    std::thread mThread;
+    std::mutex mThreadMutex;
+    std::condition_variable mThreadCv;
+
+    std::chrono::steady_clock::time_point mCurrentTime;
+
+    struct Timer {
+      EventLoop *loop;
+      std::string event_name;
+      std::chrono::milliseconds timeout;
+      std::chrono::milliseconds timeleft;
+      TimerMode mode;
+
+      bool operator<(const Timer &other) const { return timeleft < other.timeleft; }
+    };
+
+    std::priority_queue<Timer> mTimers;
+    std::unordered_set<std::string> mDeletedTimers;
+    std::mutex mDeletedTimersMutex;
+
+    void TimerThread() {
+      using namespace std::chrono_literals;
+      std::chrono::milliseconds timeout = 1h;
+      mCurrentTime = std::chrono::steady_clock::now();
+      while (!mThreadExit) {
+        std::unique_lock lock(mThreadMutex);
+        mThreadCv.wait_for(lock, timeout);
+        if (mTimers.empty()) { continue; }
+
+        // 遍历定时器，如果已删除则忽略，否则判断是否超时
+        // 更新定时器剩余时间，如果未触发则提前跳出循环
+        Timer timer = mTimers.top();
+        timer.loop->trigger(timer.event_name);
+        timeout = timer.timeout;
+        if (timer.mode != TimerMode::kLoop) { mTimers.pop(); }
+      }
+    }
 };
 }
 

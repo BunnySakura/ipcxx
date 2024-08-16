@@ -44,6 +44,16 @@ int main() {
   std::this_thread::sleep_for(1s);
   event_loop.resume();
 
+  // 添加定时器
+  Event timer_event;
+  timer_event.bind([] { std::cout << "=== Timer triggered. ===" << std::endl; });
+  event_name = "TestTimer";
+  TimerManager timer_manager;
+  timer_manager.addTimer(&event_loop, event_name, timer_event, 1s, TimerManager::TimerMode::kLoop);
+  std::this_thread::sleep_for(5s);
+  timer_manager.removeTimer(event_name);
+  timer_manager.clearTimers();
+
   // 等待触发事件的线程结束
   thread1.join();
   thread2.join();
