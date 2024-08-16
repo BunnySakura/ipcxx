@@ -18,8 +18,8 @@ class Event final {
      * \brief 事件优先级
      */
     enum class Priority {
-      kNormal = 0,
-      kLow,
+      kLow = 0,
+      kNormal,
       kHigh,
     };
 
@@ -120,15 +120,15 @@ class EventLoop {
 
           if (mLoopStatus != Status::kRunning) { continue; } // 事件循环暂停，直接跳过
 
-          do { // 若触发的事件名称已添加，快速取出对应事件对象到局部变量
-            std::lock_guard lock(mEventsMutex);
-            for (auto &name : triggered_evt_names) {
-              if (auto it = mEvents.find(name); it != mEvents.end()) {
-                auto &[_, event_obj] = *it;
-                triggered_evts.push(event_obj);
-              }
+          // 若触发的事件名称已添加，快速取出对应事件对象到局部变量
+          std::unique_lock lock(mEventsMutex);
+          for (auto &name : triggered_evt_names) {
+            if (auto it = mEvents.find(name); it != mEvents.end()) {
+              auto &[_, event_obj] = *it;
+              triggered_evts.push(event_obj);
             }
-          } while (false);
+          }
+          lock.unlock();
 
           while (!triggered_evts.empty()) {
             Event evt = triggered_evts.top();
@@ -229,7 +229,12 @@ class EventLoop {
 };
 
 class TimerManager {
+  using milliseconds = std::chrono::milliseconds;
+
   public:
+    /**
+     * \brief 定时器模式
+     */
     enum class TimerMode {
       kOnce = 0,
       kLoop
@@ -237,7 +242,7 @@ class TimerManager {
 
     TimerManager()
       : mThreadExit(false),
-        mThread(&TimerManager::TimerThread, this) {}
+        mThread(&TimerManager::timerThread, this) {}
 
     ~TimerManager() {
       mThreadExit = true;
@@ -257,7 +262,7 @@ class TimerManager {
       EventLoop *loop,
       const std::string &event_name,
       const Event &event,
-      const std::chrono::milliseconds &timeout,
+      const milliseconds &timeout,
       TimerMode mode = TimerMode::kOnce
     ) {
       std::lock_guard lock(mThreadMutex);
@@ -283,37 +288,72 @@ class TimerManager {
     std::mutex mThreadMutex;
     std::condition_variable mThreadCv;
 
-    std::chrono::steady_clock::time_point mCurrentTime;
-
     struct Timer {
       EventLoop *loop;
       std::string event_name;
-      std::chrono::milliseconds timeout;
-      std::chrono::milliseconds timeleft;
+      milliseconds timeout;
+      milliseconds timeleft;
       TimerMode mode;
 
-      bool operator<(const Timer &other) const { return timeleft < other.timeleft; }
+      bool operator<(const Timer &other) const {
+        // 剩余时间小的优先响应
+        return timeleft > other.timeleft;
+      }
     };
 
     std::priority_queue<Timer> mTimers;
     std::unordered_set<std::string> mDeletedTimers;
     std::mutex mDeletedTimersMutex;
 
-    void TimerThread() {
+    void timerThread() {
       using namespace std::chrono_literals;
-      std::chrono::milliseconds timeout = 1h;
-      mCurrentTime = std::chrono::steady_clock::now();
+      milliseconds next_timeout = 24h;
       while (!mThreadExit) {
         std::unique_lock lock(mThreadMutex);
-        mThreadCv.wait_for(lock, timeout);
+        mThreadCv.wait_for(lock, next_timeout);
         if (mTimers.empty()) { continue; }
 
         // 遍历定时器，如果已删除则忽略，否则判断是否超时
         // 更新定时器剩余时间，如果未触发则提前跳出循环
-        Timer timer = mTimers.top();
-        timer.loop->trigger(timer.event_name);
-        timeout = timer.timeout;
-        if (timer.mode != TimerMode::kLoop) { mTimers.pop(); }
+        std::unique_lock deleted_lock(mDeletedTimersMutex);
+        auto deleted_timers = mDeletedTimers;
+        deleted_lock.unlock();
+
+        auto [loop, event_name, timeout, timeleft, mode] = mTimers.top();
+        mTimers.pop();
+
+        if (deleted_timers.find(event_name) != deleted_timers.end()) {
+          continue;
+        }
+
+        if (timeleft > 0ms) {
+          // 没有超时的定时器，设置下一次休眠至本定时器超时
+          next_timeout = timeleft;
+          continue;
+        }
+
+        // 存在超时定时器
+        loop->trigger(event_name);
+
+        // 更新所有定时器剩余时间
+        for (int i = 0; i < mTimers.size(); ++i) {
+          auto timer = mTimers.top();
+          mTimers.pop();
+          timer.timeleft = timer.timeleft - timeout;
+          mTimers.push(timer);
+        }
+
+        // 循环定时器更新剩余时间，并重新添加
+        if (mode == TimerMode::kLoop) {
+          timeleft = timeout;
+          mTimers.push({loop, event_name, timeout, timeleft, mode});
+        }
+
+        if (mTimers.empty()) {
+          next_timeout = 24h;
+        } else {
+          next_timeout = mTimers.top().timeleft;
+        }
       }
     }
 };
