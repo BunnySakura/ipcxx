@@ -6,6 +6,7 @@
 #include <atomic>
 #include <functional>
 #include <optional>
+#include <string>
 #include <thread>
 #include <unordered_set>
 
@@ -230,6 +231,7 @@ class EventLoop {
 
 class TimerManager {
   using milliseconds = std::chrono::milliseconds;
+  using time_point = std::chrono::time_point<std::chrono::steady_clock>;
 
   public:
     /**
@@ -266,14 +268,14 @@ class TimerManager {
       TimerMode mode = TimerMode::kOnce
     ) {
       std::lock_guard lock(mThreadMutex);
-      mTimers.push({loop, event_name, timeout, timeout, mode});
+      mTimers.push({loop, event_name, std::chrono::steady_clock::now(), timeout, timeout, mode});
       loop->add(event_name, event);
       mThreadCv.notify_one();
     }
 
     void removeTimer(const std::string &event_name) {
       std::lock_guard lock(mDeletedTimersMutex);
-      mDeletedTimers.insert(event_name);
+      mDeletedTimers.insert(event_name); // 标记为删除，在下一轮中被清理
     }
 
     void clearTimers() {
@@ -291,6 +293,7 @@ class TimerManager {
     struct Timer {
       EventLoop *loop;
       std::string event_name;
+      time_point last_tick;
       milliseconds timeout;
       milliseconds timeleft;
       TimerMode mode;
@@ -307,46 +310,36 @@ class TimerManager {
 
     void timerThread() {
       using namespace std::chrono_literals;
-      milliseconds next_timeout = 24h;
+      milliseconds next_timeout = 365 * 24h;
       while (!mThreadExit) {
         std::unique_lock lock(mThreadMutex);
         mThreadCv.wait_for(lock, next_timeout);
         if (mTimers.empty()) { continue; }
 
-        // 遍历定时器，如果已删除则忽略，否则判断是否超时
-        // 更新定时器剩余时间，如果未触发则提前跳出循环
+        // 遍历定时器，如果已删除则跳过，否则更新剩余时间和最后一次滴答计数时间
+        // 如果剩余时间小于等于 0 则触发事件
+        // 更新下一次休眠时间
         std::unique_lock deleted_lock(mDeletedTimersMutex);
         auto deleted_timers = mDeletedTimers;
         deleted_lock.unlock();
 
-        auto [loop, event_name, timeout, timeleft, mode] = mTimers.top();
-        mTimers.pop();
-
-        if (deleted_timers.find(event_name) != deleted_timers.end()) {
-          continue;
-        }
-
-        if (timeleft > 0ms) {
-          // 没有超时的定时器，设置下一次休眠至本定时器超时
-          next_timeout = timeleft;
-          continue;
-        }
-
-        // 存在超时定时器
-        loop->trigger(event_name);
-
-        // 更新所有定时器剩余时间
         for (int i = 0; i < mTimers.size(); ++i) {
           auto timer = mTimers.top();
           mTimers.pop();
-          timer.timeleft = timer.timeleft - timeout;
-          mTimers.push(timer);
-        }
+          if (deleted_timers.find(timer.event_name) != deleted_timers.end()) { continue; }
 
-        // 循环定时器更新剩余时间，并重新添加
-        if (mode == TimerMode::kLoop) {
-          timeleft = timeout;
-          mTimers.push({loop, event_name, timeout, timeleft, mode});
+          auto now = std::chrono::steady_clock::now();
+          timer.timeleft = timer.timeleft - std::chrono::duration_cast<milliseconds>(now - timer.last_tick);
+          timer.last_tick = now;
+
+          if (timer.timeleft <= 0ms) {
+            timer.timeleft = timer.timeout;
+            timer.loop->trigger(timer.event_name);
+          }
+
+          if (timer.mode == TimerMode::kLoop) {
+            mTimers.push(timer);
+          }
         }
 
         if (mTimers.empty()) {
