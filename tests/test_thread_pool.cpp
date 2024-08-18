@@ -7,7 +7,7 @@
 using namespace std::chrono_literals;
 
 int main() {
-  ThreadPool pool(4);
+  ThreadPool pool;
   std::vector<std::future<int>> results;
 
   results.reserve(8);
