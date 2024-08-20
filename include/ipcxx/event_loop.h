@@ -244,12 +244,12 @@ class TimerManager {
 
     TimerManager()
       : mThreadExit(false),
-        mThread(&TimerManager::timerThread, this) {}
+        mManagerThread(&TimerManager::timerThread, this) {} // 等待事件循环启动
 
     ~TimerManager() {
       mThreadExit = true;
       mThreadCv.notify_all();
-      mThread.join();
+      mManagerThread.join();
     }
 
     TimerManager(const TimerManager &) = delete;
@@ -262,14 +262,14 @@ class TimerManager {
 
     void addTimer(
       EventLoop *loop,
-      const std::string &event_name,
+      const std::string &name,
       const Event &event,
       const milliseconds &timeout,
       TimerMode mode = TimerMode::kOnce
     ) {
       std::lock_guard lock(mThreadMutex);
-      mTimers.push({loop, event_name, std::chrono::steady_clock::now(), timeout, timeout, mode});
-      loop->add(event_name, event);
+      mTimers.push({name, event, mode, std::chrono::steady_clock::now(), timeout, timeout});
+      loop->add(name, event);
       mThreadCv.notify_one();
     }
 
@@ -286,17 +286,18 @@ class TimerManager {
 
   private:
     std::atomic_bool mThreadExit;
-    std::thread mThread;
+    std::thread mManagerThread;
     std::mutex mThreadMutex;
     std::condition_variable mThreadCv;
 
     struct Timer {
-      EventLoop *loop;
-      std::string event_name;
+      std::string name;
+      Event event;
+      TimerMode mode;
+
       time_point last_tick;
       milliseconds timeout;
       milliseconds timeleft;
-      TimerMode mode;
 
       bool operator<(const Timer &other) const {
         // 剩余时间小的优先响应
@@ -326,7 +327,7 @@ class TimerManager {
         for (int i = 0; i < mTimers.size(); ++i) {
           auto timer = mTimers.top();
           mTimers.pop();
-          if (deleted_timers.find(timer.event_name) != deleted_timers.end()) { continue; }
+          if (deleted_timers.find(timer.name) != deleted_timers.end()) { continue; }
 
           auto now = std::chrono::steady_clock::now();
           timer.timeleft = timer.timeleft - std::chrono::duration_cast<milliseconds>(now - timer.last_tick);
@@ -334,7 +335,7 @@ class TimerManager {
 
           if (timer.timeleft <= 0ms) {
             timer.timeleft = timer.timeout;
-            timer.loop->trigger(timer.event_name);
+            timer.event.trigger();
           }
 
           if (timer.mode == TimerMode::kLoop) {
