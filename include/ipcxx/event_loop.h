@@ -242,9 +242,13 @@ class TimerManager {
       kLoop
     };
 
+    /**
+     * \brief 启动定时器管理线程
+     * \note 需要在线程启动后再触发定时器，否则会丢失此次触发
+     */
     TimerManager()
       : mThreadExit(false),
-        mManagerThread(&TimerManager::timerThread, this) {} // 等待事件循环启动
+        mManagerThread(&TimerManager::timerManagerThread, this) {}
 
     ~TimerManager() {
       mThreadExit = true;
@@ -260,8 +264,14 @@ class TimerManager {
 
     TimerManager &operator=(TimerManager &&other) = delete;
 
+    /**
+     * \brief 添加定时器
+     * \param name 定时器名称
+     * \param event 定时器事件
+     * \param timeout 超时时间
+     * \param mode 定时器模式，一次或循环
+     */
     void addTimer(
-      EventLoop *loop,
       const std::string &name,
       const Event &event,
       const milliseconds &timeout,
@@ -269,15 +279,22 @@ class TimerManager {
     ) {
       std::lock_guard lock(mThreadMutex);
       mTimers.push({name, event, mode, std::chrono::steady_clock::now(), timeout, timeout});
-      loop->add(name, event);
       mThreadCv.notify_one();
     }
 
-    void removeTimer(const std::string &event_name) {
+    /**
+     * \brief 移除定时器
+     * \param name 定时器名称
+     * \note 定时器将被标记为删除，在下一轮中会被清理，避免遍历耗时
+     */
+    void removeTimer(const std::string &name) {
       std::lock_guard lock(mDeletedTimersMutex);
-      mDeletedTimers.insert(event_name); // 标记为删除，在下一轮中被清理
+      mDeletedTimers.insert(name); // 标记为删除，在下一轮中被清理
     }
 
+    /**
+     * \brief 清除所有定时器
+     */
     void clearTimers() {
       std::lock_guard lock(mThreadMutex);
       std::priority_queue<Timer> timers;
@@ -295,13 +312,12 @@ class TimerManager {
       Event event;
       TimerMode mode;
 
-      time_point last_tick;
-      milliseconds timeout;
-      milliseconds timeleft;
+      time_point last_tick;  // 最后一次触发时间
+      milliseconds timeout;  // 超时时间
+      milliseconds timeleft; // 剩余时间
 
       bool operator<(const Timer &other) const {
-        // 剩余时间小的优先响应
-        return timeleft > other.timeleft;
+        return timeleft > other.timeleft; // 剩余时间小的优先响应
       }
     };
 
@@ -309,7 +325,10 @@ class TimerManager {
     std::unordered_set<std::string> mDeletedTimers;
     std::mutex mDeletedTimersMutex;
 
-    void timerThread() {
+    /**
+     * \brief 定时器管理线程
+     */
+    void timerManagerThread() {
       using namespace std::chrono_literals;
       milliseconds next_timeout = 365 * 24h;
       while (!mThreadExit) {
