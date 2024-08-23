@@ -82,7 +82,7 @@ class Event final {
     std::vector<EventHandler> mHandlers;   // 事件处理函数
 };
 
-class EventLoop {
+class EventLoop final {
   public:
     /**
      * \brief 事件循环执行位置
@@ -103,48 +103,8 @@ class EventLoop {
 
     /**
      * \brief 创建事件循环
-     * \param mode 事件循环执行位置
      */
-    explicit EventLoop(const ExecMode &mode = ExecMode::kNewThread)
-      : mLoopStatus(Status::kRunning) {
-      auto loop = [this] {
-        while (mLoopStatus != Status::kStopped) {
-          std::string event_name;
-          std::vector<std::string> triggered_evt_names;
-          std::priority_queue<Event> triggered_evts; // 优先队列，高优先级事件优先响应
-
-          using namespace std::chrono_literals;
-          do { // 快速取出触发的事件名称到局部变量，减少阻塞
-            mTriggeredEvtNames.pop(event_name);
-            triggered_evt_names.push_back(event_name);
-          } while (!mTriggeredEvtNames.empty());
-
-          if (mLoopStatus != Status::kRunning) { continue; } // 事件循环暂停，直接跳过
-
-          // 若触发的事件名称已添加，快速取出对应事件对象到局部变量
-          std::unique_lock lock(mEventsMutex);
-          for (auto &name : triggered_evt_names) {
-            if (auto it = mEvents.find(name); it != mEvents.end()) {
-              auto &[_, event_obj] = *it;
-              triggered_evts.push(event_obj);
-            }
-          }
-          lock.unlock();
-
-          while (!triggered_evts.empty()) {
-            Event evt = triggered_evts.top();
-            triggered_evts.pop();
-            evt.trigger(); // 执行事件绑定的处理函数
-          }
-        }
-      };
-
-      if (mode == ExecMode::kThisThread) {
-        loop();
-      } else {
-        mLoopThread = std::thread(loop);
-      }
-    }
+    EventLoop() = default;
 
     ~EventLoop() {
       mLoopStatus = Status::kStopped;
@@ -164,14 +124,41 @@ class EventLoop {
     EventLoop &operator=(EventLoop &&other) = delete;
 
     /**
-     * \brief 暂停事件循环
+     * \brief 启动事件循环
+     * \param mode 事件循环执行位置
      */
-    void pause() { mLoopStatus = Status::kPaused; }
+    void start(const ExecMode &mode = ExecMode::kNewThread) {
+      if (
+        auto old_status = Status::kStopped;
+        mLoopStatus.compare_exchange_strong(old_status, Status::kRunning)
+      ) {
+        return;
+      }
+
+      if (mode == ExecMode::kThisThread) {
+        workerThread();
+      } else {
+        mLoopThread = std::thread(&EventLoop::workerThread, this);
+      }
+    }
+
+    /**
+     * \brief 暂停事件循环
+     * \return 暂停成功返回 `true`，否则返回 `false`
+     */
+    bool pause() {
+      auto old_status = Status::kRunning;
+      return mLoopStatus.compare_exchange_strong(old_status, Status::kPaused);
+    }
 
     /**
      * \brief 恢复事件循环
+     * \return 恢复成功返回 `true`，否则返回 `false`
      */
-    void resume() { mLoopStatus = Status::kRunning; }
+    bool resume() {
+      auto old_status = Status::kPaused;
+      return mLoopStatus.compare_exchange_strong(old_status, Status::kRunning);
+    }
 
     /**
      * \brief 获取事件循环状态
@@ -220,16 +207,51 @@ class EventLoop {
     }
 
   private:
-    std::thread mLoopThread;         // 在新线程中执行循环
-    std::atomic<Status> mLoopStatus; // 事件循环状态
+    std::thread mLoopThread;                           // 在新线程中执行循环
+    std::atomic<Status> mLoopStatus{Status::kStopped}; // 事件循环状态
 
     std::unordered_map<std::string, Event> mEvents; // 事件名称 - 事件对象
     std::mutex mEventsMutex;
 
     AsyncQueue<std::string> mTriggeredEvtNames; // 触发的事件名称
+
+    /**
+     * \brief 循环线程
+     */
+    void workerThread() {
+      while (mLoopStatus != Status::kStopped) {
+        std::string event_name;
+        std::vector<std::string> triggered_evt_names;
+        std::priority_queue<Event> triggered_evts; // 优先队列，高优先级事件优先响应
+
+        using namespace std::chrono_literals;
+        do { // 快速取出触发的事件名称到局部变量，减少阻塞
+          mTriggeredEvtNames.pop(event_name);
+          triggered_evt_names.push_back(event_name);
+        } while (!mTriggeredEvtNames.empty());
+
+        if (mLoopStatus != Status::kRunning) { continue; } // 事件循环暂停，直接跳过
+
+        // 若触发的事件名称已添加，快速取出对应事件对象到局部变量
+        std::unique_lock lock(mEventsMutex);
+        for (auto &name : triggered_evt_names) {
+          if (auto it = mEvents.find(name); it != mEvents.end()) {
+            auto &[_, event_obj] = *it;
+            triggered_evts.push(event_obj);
+          }
+        }
+        lock.unlock();
+
+        while (!triggered_evts.empty()) {
+          Event evt = triggered_evts.top();
+          triggered_evts.pop();
+          evt.trigger(); // 执行事件绑定的处理函数
+        }
+      }
+    }
 };
 
-class TimerManager {
+class TimerManager final {
   using milliseconds = std::chrono::milliseconds;
   using time_point = std::chrono::time_point<std::chrono::steady_clock>;
 
@@ -242,18 +264,12 @@ class TimerManager {
       kLoop
     };
 
-    /**
-     * \brief 启动定时器管理线程
-     * \note 需要在线程启动后再触发定时器，否则会丢失此次触发
-     */
-    TimerManager()
-      : mThreadExit(false),
-        mManagerThread(&TimerManager::timerManagerThread, this) {}
+    TimerManager() = default;
 
     ~TimerManager() {
       mThreadExit = true;
       mThreadCv.notify_all();
-      mManagerThread.join();
+      mWorkerThread.join();
     }
 
     TimerManager(const TimerManager &) = delete;
@@ -263,6 +279,20 @@ class TimerManager {
     TimerManager(TimerManager &&other) = delete;
 
     TimerManager &operator=(TimerManager &&other) = delete;
+
+    /**
+     * \brief 启动定时器工作线程
+     */
+    void start() {
+      bool start = true;
+      if (mThreadExit.compare_exchange_strong(start, false)) {
+        mWorkerThread = std::thread(&TimerManager::workerThread, this);
+      }
+      // 为了避免在工作线程开始等待之前，唤醒操作丢失，有两种方案：
+      // 1. 可以在此处等待至互斥量不可加锁，则意味着工作线程里已经开始等待；
+      // 2. 可以在工作线程以极短时间循环等待，但此方式会导致没有进行唤醒时，工作线程浪费CPU
+      while (mThreadMutex.try_lock()) mThreadMutex.unlock();
+    }
 
     /**
      * \brief 添加定时器
@@ -302,11 +332,14 @@ class TimerManager {
     }
 
   private:
-    std::atomic_bool mThreadExit;
-    std::thread mManagerThread;
+    std::atomic_bool mThreadExit{true};
+    std::thread mWorkerThread;
     std::mutex mThreadMutex;
     std::condition_variable mThreadCv;
 
+    /**
+     * \brief 定时器定义
+     */
     struct Timer {
       std::string name;
       Event event;
@@ -321,14 +354,14 @@ class TimerManager {
       }
     };
 
-    std::priority_queue<Timer> mTimers;
-    std::unordered_set<std::string> mDeletedTimers;
+    std::priority_queue<Timer> mTimers;             // 定时器优先队列
+    std::unordered_set<std::string> mDeletedTimers; // 已删除的定时器
     std::mutex mDeletedTimersMutex;
 
     /**
      * \brief 定时器管理线程
      */
-    void timerManagerThread() {
+    void workerThread() {
       using namespace std::chrono_literals;
       milliseconds next_timeout = 365 * 24h;
       while (!mThreadExit) {
@@ -346,7 +379,10 @@ class TimerManager {
         for (int i = 0; i < mTimers.size(); ++i) {
           auto timer = mTimers.top();
           mTimers.pop();
-          if (deleted_timers.find(timer.name) != deleted_timers.end()) { continue; }
+          if (deleted_timers.find(timer.name) != deleted_timers.end()) {
+            deleted_timers.erase(timer.name);
+            continue;
+          }
 
           auto now = std::chrono::steady_clock::now();
           timer.timeleft = timer.timeleft - std::chrono::duration_cast<milliseconds>(now - timer.last_tick);
