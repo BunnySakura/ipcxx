@@ -1,170 +1,165 @@
 #pragma once
 
 #include "basesocket.hpp"
-#include <string.h>
+#include <cstring>
 #include <thread>
 
-template <uint16_t BUFFER_SIZE = AS_DEFAULT_BUFFER_SIZE>
-class UDPSocket : public BaseSocket
-{
-public:
+template<uint16_t BUFFER_SIZE = AS_DEFAULT_BUFFER_SIZE>
+class UDPSocket : public BaseSocket {
+  public:
     std::function<void(std::string, std::string, std::uint16_t)> onMessageReceived;
-    std::function<void(const char*, ssize_t, std::string, std::uint16_t)> onRawMessageReceived;
+    std::function<void(const char *, ssize_t, std::string, std::uint16_t)> onRawMessageReceived;
 
-    explicit UDPSocket(bool useConnect = false, FDR_ON_ERROR, int socketId = -1): BaseSocket(onError, SocketType::UDP, socketId)
-    {
-        if (useConnect)
-        {
-            std::thread t(Receive, this); // usage with Connect()
-            t.detach();
-        }
-        else
-        {
-            std::thread t(ReceiveFrom, this);
-            t.detach();
-        }
+    explicit UDPSocket(bool useConnect = false, FDR_ON_ERROR, int socketId = -1): BaseSocket(
+      onError, SocketType::UDP, socketId
+    ) {
+      if (useConnect) {
+        std::thread t(Receive, this); // usage with Connect()
+        t.detach();
+      } else {
+        std::thread t(ReceiveFrom, this);
+        t.detach();
+      }
     }
-    
+
     // Send raw bytes to a spesific `host` & `port` with no connection
-    ssize_t SendTo(const char* bytes, size_t byteslength, const char* host, uint16_t port, FDR_ON_ERROR)
-    {
-        sockaddr_in hostAddr;
+    ssize_t SendTo(const char *bytes, size_t byteslength, const char *host, uint16_t port, FDR_ON_ERROR) const {
+      sockaddr_in hostAddr{};
 
-        struct addrinfo hints, *res, *it;
-        memset(&hints, 0, sizeof(hints));
-        hints.ai_family = AF_INET;
-        hints.ai_socktype = SOCK_DGRAM;
+      addrinfo hints{}, *res;
+      memset(&hints, 0, sizeof(hints));
+      hints.ai_family = AF_INET;
+      hints.ai_socktype = SOCK_DGRAM;
 
-        int status;
-        if ((status = getaddrinfo(host, NULL, &hints, &res)) != 0)
-        {
-            onError(errno, "Invalid address." + std::string(gai_strerror(status)));
-            return -1;
+      int status;
+      if ((status = getaddrinfo(host, nullptr, &hints, &res)) != 0) {
+        onError(errno, "Invalid address." + std::string(gai_strerror(status)));
+        return -1;
+      }
+
+      for (addrinfo *it = res; it != nullptr; it = it->ai_next) {
+        if (it->ai_family == AF_INET) { // IPv4
+          memcpy(&hostAddr, it->ai_addr, sizeof(sockaddr_in));
+          break; // for now, just get first ip (ipv4).
         }
+      }
 
-        for (it = res; it != NULL; it = it->ai_next)
-        {
-            if (it->ai_family == AF_INET)
-            { // IPv4
-                memcpy((void* )(&hostAddr), (void* )it->ai_addr, sizeof(sockaddr_in));
-                break; // for now, just get first ip (ipv4).
-            }
-        }
+      freeaddrinfo(res);
 
-        freeaddrinfo(res);
+      hostAddr.sin_port = htons(port);
+      hostAddr.sin_family = AF_INET;
 
-        hostAddr.sin_port = htons(port);
-        hostAddr.sin_family = AF_INET;
-        
-        ssize_t sent_length = sendto(this->sock, bytes, byteslength, 0, (sockaddr*)&hostAddr, sizeof(hostAddr));
-        if (sent_length == -1)
-        {
-            onError(errno, "Cannot send message to the address.");
-            return -1;
-        }
+      ssize_t sent_length = sendto(
+        this->sock, bytes, byteslength, 0, reinterpret_cast<sockaddr *>(&hostAddr), sizeof(hostAddr)
+      );
+      if (sent_length == -1) {
+        onError(errno, "Cannot send message to the address.");
+        return -1;
+      }
 
-        return sent_length;
+      return sent_length;
     }
+
     // Send raw bytes to a spesific `host` & `port` with no connection
-    ssize_t SendTo(const char* bytes, size_t byteslength, const std::string& host, uint16_t port, FDR_ON_ERROR)
-    {
-        return this->SendTo(bytes, byteslength, host.c_str(), port, onError);
+    ssize_t SendTo(const char *bytes, size_t byteslength, const std::string &host, uint16_t port, FDR_ON_ERROR) {
+      return this->SendTo(bytes, byteslength, host.c_str(), port, onError);
     }
+
     // Send std::string to a spesific `host` & `port` with no connection
-    ssize_t SendTo(const std::string& message, const char* host, uint16_t port, FDR_ON_ERROR)
-    {
-        return this->SendTo(message.c_str(), message.length(), host, port, onError);
+    ssize_t SendTo(const std::string &message, const char *host, uint16_t port, FDR_ON_ERROR) {
+      return this->SendTo(message.c_str(), message.length(), host, port, onError);
     }
+
     // Send std::string to a spesific `host` & `port` with no connection
-    ssize_t SendTo(const std::string& message, const std::string& host, uint16_t port, FDR_ON_ERROR)
-    {
-        return this->SendTo(message.c_str(), message.length(), host.c_str(), port, onError);
+    ssize_t SendTo(const std::string &message, const std::string &host, uint16_t port, FDR_ON_ERROR) {
+      return this->SendTo(message.c_str(), message.length(), host.c_str(), port, onError);
     }
 
     // Send raw bytes to the `Connect()`ed server.
-    ssize_t Send(const char* bytes, size_t byteslength) { return send(this->sock, bytes, byteslength, 0); }
+    ssize_t Send(const char *bytes, size_t byteslength) const { return send(this->sock, bytes, byteslength, 0); }
+
     // Send std::string to the `Connect()`ed server.
-    ssize_t Send(const std::string& message) { return this->Send(message.c_str(), message.length()); }
+    ssize_t Send(const std::string &message) const { return this->Send(message.c_str(), message.length()); }
 
     // Connect to a server with raw `uint32_t ipv4` and `uint16_t port` values.
-    void Connect(uint32_t ipv4, uint16_t port, FDR_ON_ERROR)
-    {
-        this->address.sin_family = AF_INET;
-        this->address.sin_port = htons(port);
-        this->address.sin_addr.s_addr = ipv4;
+    void Connect(uint32_t ipv4, uint16_t port, FDR_ON_ERROR) {
+      this->address.sin_family = AF_INET;
+      this->address.sin_port = htons(port);
+      this->address.sin_addr.s_addr = ipv4;
 
-        // Try to connect.
-        int status = connect(this->sock, (const sockaddr* )&this->address, sizeof(sockaddr_in));
-        if (status == -1)
-        {
-            onError(errno, "Connection failed to the host.");
-            return;
-        }
+      // Try to connect.
+      int status = connect(this->sock, reinterpret_cast<const sockaddr *>(&this->address), sizeof(sockaddr_in));
+      if (status == -1) {
+        onError(errno, "Connection failed to the host.");
+        return;
+      }
     }
+
     // Connect to a server with `host` address and `port` values.
-    void Connect(const char* host, uint16_t port, FDR_ON_ERROR)
-    {
-        struct addrinfo hints, *res, *it;
-        memset(&hints, 0, sizeof(hints));
-        hints.ai_family = AF_INET;
-        hints.ai_socktype = SOCK_DGRAM;
+    void Connect(const char *host, uint16_t port, FDR_ON_ERROR) {
+      addrinfo hints{}, *res;
+      memset(&hints, 0, sizeof(hints));
+      hints.ai_family = AF_INET;
+      hints.ai_socktype = SOCK_DGRAM;
 
-        int status = getaddrinfo(host, NULL, &hints, &res);
-        if (status != 0)
-        {
-            onError(errno, "Invalid address." + std::string(gai_strerror(status)));
-            return;
+      int status = getaddrinfo(host, nullptr, &hints, &res);
+      if (status != 0) {
+        onError(errno, "Invalid address." + std::string(gai_strerror(status)));
+        return;
+      }
+
+      for (struct addrinfo *it = res; it != nullptr; it = it->ai_next) {
+        if (it->ai_family == AF_INET) { // IPv4
+          memcpy(static_cast<void *>(&this->address), it->ai_addr, sizeof(sockaddr_in));
+          break; // for now, just get first ip (ipv4).
         }
+      }
 
-        for (it = res; it != NULL; it = it->ai_next)
-        {
-            if (it->ai_family == AF_INET)
-            { // IPv4
-                memcpy((void* )(&this->address), (void*)it->ai_addr, sizeof(sockaddr_in));
-                break; // for now, just get first ip (ipv4).
-            }
-        }
+      freeaddrinfo(res);
 
-        freeaddrinfo(res);
-
-        this->Connect((uint32_t)this->address.sin_addr.s_addr, port, onError);
+      this->Connect(this->address.sin_addr.s_addr, port, onError);
     }
+
     // Connect to a server with `host` address and `port` values.
-    void Connect(const std::string& host, uint16_t port, FDR_ON_ERROR) { this->Connect(host.c_str(), port, onError); }
+    void Connect(const std::string &host, uint16_t port, FDR_ON_ERROR) { this->Connect(host.c_str(), port, onError); }
 
-private:
-    static void Receive(UDPSocket* udpSocket)
-    {
-        char tempBuffer[BUFFER_SIZE+1];
-        ssize_t messageLength;
+  private:
+    static void Receive(UDPSocket *udpSocket) {
+      char tempBuffer[BUFFER_SIZE + 1];
+      ssize_t messageLength;
 
-        while ((messageLength = recv(udpSocket->sock, tempBuffer, BUFFER_SIZE, 0)) != -1)
-        {
-            tempBuffer[messageLength] = '\0';
-            if (udpSocket->onMessageReceived)
-                udpSocket->onMessageReceived(std::string(tempBuffer, messageLength), ipToString(udpSocket->address), ntohs(udpSocket->address.sin_port));
+      while ((messageLength = recv(udpSocket->sock, tempBuffer, BUFFER_SIZE, 0)) != -1) {
+        tempBuffer[messageLength] = '\0';
+        if (udpSocket->onMessageReceived)
+          udpSocket->onMessageReceived(
+            std::string(tempBuffer, messageLength), ipToString(udpSocket->address), ntohs(udpSocket->address.sin_port)
+          );
 
-            if (udpSocket->onRawMessageReceived)
-                udpSocket->onRawMessageReceived(tempBuffer, messageLength, ipToString(udpSocket->address), ntohs(udpSocket->address.sin_port));
-        }
+        if (udpSocket->onRawMessageReceived)
+          udpSocket->onRawMessageReceived(
+            tempBuffer, messageLength, ipToString(udpSocket->address), ntohs(udpSocket->address.sin_port)
+          );
+      }
     }
 
-    static void ReceiveFrom(UDPSocket* udpSocket)
-    {
-        sockaddr_in hostAddr;
-        socklen_t hostAddrSize = sizeof(hostAddr);
+    static void ReceiveFrom(UDPSocket *udpSocket) {
+      sockaddr_in hostAddr{};
+      socklen_t hostAddrSize = sizeof(hostAddr);
 
-        char tempBuffer[BUFFER_SIZE+1];
-        ssize_t messageLength;
+      char tempBuffer[BUFFER_SIZE + 1];
+      ssize_t messageLength;
 
-        while ((messageLength = recvfrom(udpSocket->sock, tempBuffer, BUFFER_SIZE, 0, (sockaddr* )&hostAddr, &hostAddrSize)) != -1)
-        {
-            tempBuffer[messageLength] = '\0';
-            if (udpSocket->onMessageReceived)
-                udpSocket->onMessageReceived(std::string(tempBuffer, messageLength), ipToString(hostAddr), ntohs(hostAddr.sin_port));
+      while ((messageLength = recvfrom(
+        udpSocket->sock, tempBuffer, BUFFER_SIZE, 0, reinterpret_cast<sockaddr *>(&hostAddr), &hostAddrSize
+      )) != -1) {
+        tempBuffer[messageLength] = '\0';
+        if (udpSocket->onMessageReceived)
+          udpSocket->onMessageReceived(
+            std::string(tempBuffer, messageLength), ipToString(hostAddr), ntohs(hostAddr.sin_port)
+          );
 
-            if (udpSocket->onRawMessageReceived)
-                udpSocket->onRawMessageReceived(tempBuffer, messageLength, ipToString(hostAddr), ntohs(hostAddr.sin_port));
-        }
+        if (udpSocket->onRawMessageReceived)
+          udpSocket->onRawMessageReceived(tempBuffer, messageLength, ipToString(hostAddr), ntohs(hostAddr.sin_port));
+      }
     }
 };
