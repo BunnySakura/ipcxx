@@ -18,6 +18,7 @@ if (BUILD_SHARED_LIBS)
             "${PROJECT_SOURCE_DIR}/src/async_queue.cpp"
             "${PROJECT_SOURCE_DIR}/src/event_loop.cpp"
             "${PROJECT_SOURCE_DIR}/src/thread_pool.cpp"
+            "${PROJECT_SOURCE_DIR}/src/async_socket.cpp"
     )
 endif ()
 
