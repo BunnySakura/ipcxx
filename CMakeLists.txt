@@ -1,5 +1,10 @@
 cmake_minimum_required(VERSION 3.10)
-project(ipcxx)
+project(ipcxx
+        VERSION 1.0.0
+        DESCRIPTION "仅头文件的轻量级C++中间件开发框架。"
+        HOMEPAGE_URL "https://github.com/BunnySakura/ipcxx"
+        LANGUAGES CXX
+)
 
 set(CMAKE_CXX_STANDARD 17)
 
@@ -12,6 +17,14 @@ option(BUILD_TESTS "Build tests" ON)
 # === 构建配置 ===
 if (BUILD_SHARED_LIBS)
     add_library(${PROJECT_NAME} SHARED)
+    # 设置库的版本号和SOVERSION
+    set_target_properties(${PROJECT_NAME} PROPERTIES
+            VERSION ${PROJECT_VERSION}
+            SOVERSION ${PROJECT_VERSION_MAJOR}
+    )
+    # 为Debug版本的库添加d后缀
+    set_target_properties(${PROJECT_NAME} PROPERTIES DEBUG_POSTFIX "d")
+
     target_include_directories("${PROJECT_NAME}" PUBLIC "${PROJECT_SOURCE_DIR}/include")
     target_sources("${PROJECT_NAME}" PRIVATE
             "${PROJECT_SOURCE_DIR}/src/ipcxx.cpp"
