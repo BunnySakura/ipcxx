@@ -130,7 +130,7 @@ class EventLoop final {
     void start(const ExecMode &mode = ExecMode::kNewThread) {
       if (
         auto old_status = Status::kStopped;
-        mLoopStatus.compare_exchange_strong(old_status, Status::kRunning)
+        !mLoopStatus.compare_exchange_strong(old_status, Status::kRunning)
       ) {
         return;
       }
@@ -140,6 +140,17 @@ class EventLoop final {
       } else {
         mLoopThread = std::thread(&EventLoop::workerThread, this);
       }
+    }
+
+    /**
+     * \brief 停止事件循环
+     * \return 停止成功返回 `true`，否则返回 `false`
+     */
+    bool stop() {
+      auto old_status = Status::kRunning;
+      bool current_status = mLoopStatus.compare_exchange_strong(old_status, Status::kStopped);
+      mTriggeredEvtNames.push(std::string());
+      return current_status;
     }
 
     /**
@@ -167,7 +178,7 @@ class EventLoop final {
     [[nodiscard]] Status status() const { return mLoopStatus; }
 
     /**
-     * \brief 注册事件
+     * \brief 向事件循环添加事件绑定
      * \param event_name 事件名称
      * \param event 事件对象
      */
@@ -177,9 +188,9 @@ class EventLoop final {
     }
 
     /**
-     * \brief 移除事件
+     * \brief 从事件循环中移除事件
      * \param event_name 事件名称
-     * \return 事件对象或 `std::nullopt`
+     * \return 移除成功返回事件对象，否则返回 `nullopt`
      */
     std::optional<Event> remove(const std::string &event_name) {
       std::lock_guard lock(mEventsMutex);
@@ -191,7 +202,7 @@ class EventLoop final {
     }
 
     /**
-     * \brief 清空所有事件
+     * \brief 清空注册的事件
      */
     void clear() {
       std::lock_guard lock(mEventsMutex);
@@ -199,7 +210,7 @@ class EventLoop final {
     }
 
     /**
-     * \brief 触发事件
+     * \brief 触发指定事件
      * \param event_name 事件名称
      */
     void trigger(const std::string &event_name) {
