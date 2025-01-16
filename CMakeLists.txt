@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.10)
 project(ipcxx
-        VERSION 1.0.1
+        VERSION 1.0.2
         DESCRIPTION "仅头文件的轻量级C++中间件开发框架。"
         HOMEPAGE_URL "https://github.com/BunnySakura/ipcxx"
         LANGUAGES CXX

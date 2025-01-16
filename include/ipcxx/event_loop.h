@@ -178,21 +178,21 @@ class EventLoop final {
     [[nodiscard]] Status status() const { return mLoopStatus; }
 
     /**
-     * \brief 向事件循环添加事件绑定
+     * \brief 绑定事件名和事件对象，并监听事件
      * \param event_name 事件名称
      * \param event 事件对象
      */
-    void add(const std::string &event_name, const Event &event) {
+    void addListener(const std::string &event_name, const Event &event) {
       std::lock_guard lock(mEventsMutex);
       mEvents[event_name] = event;
     }
 
     /**
-     * \brief 从事件循环中移除事件
+     * \brief 解除监听指定名称事件
      * \param event_name 事件名称
-     * \return 移除成功返回事件对象，否则返回 `nullopt`
+     * \return 成功返回事件对象，否则返回`std::nullopt`
      */
-    std::optional<Event> remove(const std::string &event_name) {
+    std::optional<Event> removeListener(const std::string &event_name) {
       std::lock_guard lock(mEventsMutex);
       if (auto it = mEvents.find(event_name); it != mEvents.end()) {
         auto &[event_name, event_obj] = *it;
@@ -202,9 +202,9 @@ class EventLoop final {
     }
 
     /**
-     * \brief 清空注册的事件
+     * \brief 清空监听的事件
      */
-    void clear() {
+    void clearListeners() {
       std::lock_guard lock(mEventsMutex);
       mEvents.clear();
     }

@@ -23,7 +23,12 @@ void TestEventPriority(EventLoop &event_loop) {
   Event event;
   event.setPriority(Event::Priority::kHigh); // 设为高优先级
   event.bind([] { std::cout << "High priority event triggered." << std::endl; });
-  event_loop.add(EVT_NAME_HIGH_PRIORITY, event);
+  event.bind(
+    [](const std::string &str) {
+      std::cout << "High priority event say: Hi, " << str << std::endl;
+    }, __func__
+  );
+  event_loop.addListener(EVT_NAME_HIGH_PRIORITY, event);
 }
 
 void TestEvent(EventLoop &event_loop) {
@@ -39,7 +44,7 @@ void TestEvent(EventLoop &event_loop) {
     },
     std::cref(global_count)
   );
-  event_loop.add(EVT_NAME_TEST, event);
+  event_loop.addListener(EVT_NAME_TEST, event);
 }
 
 void TestTimerManager(EventLoop &event_loop, TimerManager &timer_manager) {
@@ -50,7 +55,7 @@ void TestTimerManager(EventLoop &event_loop, TimerManager &timer_manager) {
       std::cout << "Timer triggered, global_count = " << ++global_count << std::endl;
     }, std::ref(global_count)
   );
-  event_loop.add(EVT_NAME_TIMER, event);
+  event_loop.addListener(EVT_NAME_TIMER, event);
 
   // 添加定时器
   Event timer_event;
@@ -104,10 +109,10 @@ int main() {
 
   // 删除事件循环中的事件
   std::this_thread::sleep_for(1s);
-  event_loop.remove(EVT_NAME_HIGH_PRIORITY);
+  event_loop.removeListener(EVT_NAME_HIGH_PRIORITY);
   std::cout << "High priority event removed." << std::endl;
   std::this_thread::sleep_for(5s);
-  event_loop.remove(EVT_NAME_TEST);
+  event_loop.removeListener(EVT_NAME_TEST);
   std::cout << "Test event removed." << std::endl;
 
   // 等待触发事件的线程结束
@@ -116,7 +121,7 @@ int main() {
 
   // 停止事件循环并清理绑定事件和定时器
   event_loop.stop();
-  event_loop.clear();
+  event_loop.clearListeners();
   timer_manager.clearTimers();
   std::cout << "Event loop stopped, clear timers and events." << std::endl;
 
