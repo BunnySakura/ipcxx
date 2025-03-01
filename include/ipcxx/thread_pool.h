@@ -13,10 +13,12 @@
 
 class ThreadPool final {
   public:
-    explicit ThreadPool(size_t threads = std::thread::hardware_concurrency());
+    explicit ThreadPool(size_t threads);
 
     template<class F, class... Args>
     decltype(auto) enqueue(F &&f, Args &&... args);
+
+    ThreadPool() = delete;
 
     ~ThreadPool();
 
