@@ -1,82 +1,83 @@
 ---
+# ===============================================================================
+# ClangFormat 模板配置文件
+#
+# 版本: 1.0
+# 基础风格: LLVM
+# ===============================================================================
+
+# 基础风格，所有其他规则都基于此进行覆盖。
+# 可选值: LLVM, Google, Chromium, Microsoft, Mozilla, WebKit
+BasedOnStyle: LLVM
+
+# 指定语言。对于 C/C++/Objective-C，通常设置为 Cpp。
 Language: Cpp
-BasedOnStyle: Google
-AlignAfterOpenBracket: BlockIndent # 函数调用的两侧括号换行
-AlignConsecutiveAssignments: false
-AlignConsecutiveDeclarations: false
-AlignOperands: false
-AlignTrailingComments: true
-AllowShortBlocksOnASingleLine: Empty      # 空代码块不换行
-AllowShortFunctionsOnASingleLine: Inline  # 简短（空或单语句）的函数以及lambda表达式不换行
-AlwaysBreakAfterReturnType: None
-AlwaysBreakTemplateDeclarations: Yes
-BinPackArguments: true
-BinPackParameters: true
-BraceWrapping:
-  AfterCaseLabel: false
-  AfterClass: false
-  AfterControlStatement: false
-  AfterEnum: false
-  AfterFunction: false
-  AfterNamespace: false
-  AfterStruct: false
-  AfterUnion: false
-  AfterExternBlock: false
-  BeforeCatch: false
-  BeforeElse: false
-  BeforeLambdaBody: false
-  BeforeWhile: false
-  SplitEmptyFunction: false
-  SplitEmptyRecord: false
-  SplitEmptyNamespace: false
-BreakBeforeBraces: Custom
-BreakBeforeTernaryOperators: true
+
+# ===============================================================================
+# 换行与缩进 (Line Breaking & Indentation)
+# ===============================================================================
+
+# --- 构造函数 ---
+# 设置构造函数初始化列表的换行方式。
+# AfterColon: 在冒号后换行，每个初始化项占一行。
+#   Constructor() :
+#     m_a(1),
+#     m_b(2) {}
+# BeforeColon: 在冒号前换行。
+#   Constructor()
+#     : m_a(1),
+#       m_b(2) {}
 BreakConstructorInitializers: AfterColon
-# BreakConstructorInitializersBeforeComma: false # 废弃
-ColumnLimit: 120
-CompactNamespaces: false
-# ConstructorInitializerAllOnOneLineOrOnePerLine: false # 废弃
-PackConstructorInitializers: Never # 始终将每个构造函数初始化器放在自己的一行上
-ContinuationIndentWidth: 4
-EmptyLineAfterAccessModifier: Never
-EmptyLineBeforeAccessModifier: LogicalBlock
-IncludeBlocks: Preserve
-IncludeCategories:
-  - Regex: '.*'
-    Priority: 1
-  - Regex: '^".*'
-    Priority: 2
-  - Regex: '^<.*'
-    Priority: 3
-IncludeIsMainRegex: '([-_](test|unittest))?$'
-IndentAccessModifiers: True
-IndentCaseBlocks: false
-IndentCaseLabels: true
-IndentGotoLabels: true
-IndentPPDirectives: None
-IndentWidth: 2
-IndentWrappedFunctionNames: false
-InsertNewlineAtEOF: true
-MacroBlockBegin: ''
-MacroBlockEnd: ''
-MaxEmptyLinesToKeep: 1
-NamespaceIndentation: None
+
+# --- 函数 ---
+# 控制函数参数列表的打包方式。
+# false: 如果参数列表需要换行，则每个参数都单独占一行。
+# true:  尽可能地将参数打包到同一行。
+BinPackParameters: false
+
+# --- 模板 ---
+# 控制模板声明的换行。
+# Yes: 总是在模板声明 `template <...>` 后换行。
+#   template <typename T>
+#   class MyClass {};
+# No: 允许模板声明与类/函数定义在同一行。
+AlwaysBreakTemplateDeclarations: Yes
+
+# --- 运算符 ---
+# 控制在二元或三元运算符前的换行策略。
+# NonAssignment: 在非赋值运算符（如 `+`, `-`）前换行。
+#   auto x = a +
+#            b;
+# None: 在运算符后换行 (LLVM 默认)。
+#   auto x = a
+#            + b;
+# All: 在所有运算符（包括赋值 `=`) 前换行。
+BreakBeforeBinaryOperators: NonAssignment
+
+# ===============================================================================
+# 空格与代码块 (Whitespace & Blocks)
+# ===============================================================================
+
+# --- 代码块 ---
+# 控制短代码块是否可以合并到一行。
+# Empty: 只允许完全为空的块（`{}`）合并到一行。
+#   if (condition) {} // 允许
+#   try { ... } catch(...) { ... } // 不允许
+# Never: 任何块都不能合并到一行。
+# Always: 尽可能将短的非空块也合并到一行。
+AllowShortBlocksOnASingleLine: Empty
+
+# --- 指针与引用 ---
+# 控制指针 `*` 和引用 `&` 的对齐方式。
+# Right: 紧靠变量名 (int* p; int& r;)。
+# Left: 紧靠类型名 (int *p; int &r;)。
+# Middle: 两边都有空格 (int * p; int & r;)。
 PointerAlignment: Right
-SpaceAfterCStyleCast: true
-SpaceAfterLogicalNot: false
-SpaceAfterTemplateKeyword: false
-SpaceBeforeAssignmentOperators: true
-SpaceBeforeInheritanceColon: true
-SpaceBeforeParens: ControlStatements
-SpaceBeforeRangeBasedForLoopColon: true
-SpaceBeforeSquareBrackets: false
-SpaceInEmptyParentheses: false
-SpacesBeforeTrailingComments: 1
-SpacesInAngles: false
-SpacesInConditionalStatement: false
-SpacesInCStyleCastParentheses: false
-SpacesInParentheses: false
-SpacesInSquareBrackets: false
-TabWidth: 4
-UseTab: Never
+
+# ===============================================================================
+# 文件 (File)
+# ===============================================================================
+
+# 确保文件末尾有一个换行符。
+InsertNewlineAtEOF: true
 ...
